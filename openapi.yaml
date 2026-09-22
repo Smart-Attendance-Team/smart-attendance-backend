@@ -197,6 +197,7 @@ paths:
         '409':
           $ref: '#/components/responses/Conflict'
   /admin/courses:
+  
     get:
       tags: [Admin]
       summary: List courses (admin)
@@ -404,6 +405,67 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '409':
           $ref: '#/components/responses/Conflict'
+  /admin/students/{id}:
+    patch:
+      tags: [Admin]
+      summary: Update a student - name, level, department, or activate/deactivate (admin)
+      description: |
+        Send at least one of the listed fields. Deactivating (`is_active: false`) blocks the
+        student's account from logging in without deleting any attendance history.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Student id
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                student_name:
+                  type: string
+                level:
+                  type: integer
+                department_id:
+                  type: integer
+                is_active:
+                  type: boolean
+            example:
+              is_active: false
+      responses:
+        '200':
+          description: Updated student
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  student_id:
+                    type: integer
+                  student_code:
+                    type: string
+                  student_name:
+                    type: string
+                  level:
+                    type: integer
+                    nullable: true
+                  department_id:
+                    type: integer
+                    nullable: true
+                  is_active:
+                    type: boolean
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /admin/staff:
     get:
       tags: [Admin]
@@ -459,6 +521,64 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '409':
           $ref: '#/components/responses/Conflict'
+  /admin/staff/{id}:
+    patch:
+      tags: [Admin]
+      summary: Update a lecturer/TA - name, department, or activate/deactivate (admin)
+      description: |
+        Send at least one of the listed fields. `staff_type` cannot be changed here. Deactivating
+        (`is_active: false`) blocks the account from logging in without deleting any session or
+        attendance history tied to it.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Staff id
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                staff_name:
+                  type: string
+                department_id:
+                  type: integer
+                is_active:
+                  type: boolean
+            example:
+              is_active: false
+      responses:
+        '200':
+          description: Updated staff
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  staff_id:
+                    type: integer
+                  staff_name:
+                    type: string
+                  staff_type:
+                    type: string
+                    enum: [lecturer, TA]
+                  department_id:
+                    type: integer
+                    nullable: true
+                  is_active:
+                    type: boolean
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /admin/sections/{sectionId}/staff:
     post:
       tags: [Admin]

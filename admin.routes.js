@@ -75,6 +75,70 @@ router.get('/courses', async (req, res) => {
   }
 });
 
+// تعديل بيانات كورس
+router.patch('/courses/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) {
+    return res.status(400).json({ error: 'Invalid course id' });
+  }
+  const { course_code, course_name, department_id } = req.body;
+  if (course_code === undefined && course_name === undefined && department_id === undefined) {
+    return res.status(400).json({
+      error: 'Send at least one of: course_code, course_name, department_id',
+    });
+  }
+  try {
+    const cur = await pool.query('SELECT * FROM courses WHERE course_id = $1', [id]);
+    if (cur.rows.length === 0) {
+      return res.status(404).json({ error: 'Course not found' });
+    }
+    const before = cur.rows[0];
+    const result = await pool.query(
+      `UPDATE courses SET course_code = $2, course_name = $3, department_id = $4
+       WHERE course_id = $1 RETURNING *`,
+      [
+        id,
+        course_code !== undefined ? course_code : before.course_code,
+        course_name !== undefined ? course_name : before.course_name,
+        department_id !== undefined ? department_id : before.department_id,
+      ]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'Course code already exists' });
+    }
+    if (err.code === '23503') {
+      return res.status(400).json({ error: 'department_id does not exist' });
+    }
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// حذف كورس (مرفوض لو فيه شُعَب مرتبطة بيه)
+router.delete('/courses/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) {
+    return res.status(400).json({ error: 'Invalid course id' });
+  }
+  try {
+    const result = await pool.query('DELETE FROM courses WHERE course_id = $1 RETURNING *', [id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Course not found' });
+    }
+    res.json({ deleted: true, course_id: id });
+  } catch (err) {
+    if (err.code === '23503') {
+      return res.status(409).json({
+        error: 'Cannot delete: sections exist for this course. Edit it instead.',
+      });
+    }
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // إضافة قاعة أو معمل
 router.post('/rooms', async (req, res) => {
   const { room_name, building, room_type, capacity } = req.body;

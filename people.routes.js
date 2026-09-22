@@ -81,6 +81,79 @@ router.post('/students', async (req, res) => {
   }
 });
 
+// تعديل بيانات طالب (الاسم أو المستوى أو القسم أو تفعيل/تعطيل الحساب)
+router.patch('/students/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) {
+    return res.status(400).json({ error: 'Invalid student id' });
+  }
+  const { student_name, level, department_id, is_active } = req.body;
+  if (
+    student_name === undefined &&
+    level === undefined &&
+    department_id === undefined &&
+    is_active === undefined
+  ) {
+    return res.status(400).json({
+      error: 'Send at least one of: student_name, level, department_id, is_active',
+    });
+  }
+  if (is_active !== undefined && typeof is_active !== 'boolean') {
+    return res.status(400).json({ error: 'is_active must be true or false' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const cur = await client.query(
+      `SELECT sp.*, u.user_id
+       FROM student_profiles sp JOIN users u ON u.user_id = sp.user_id
+       WHERE sp.student_id = $1 FOR UPDATE`,
+      [id]
+    );
+    if (cur.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Student not found' });
+    }
+    const before = cur.rows[0];
+
+    if (student_name !== undefined || level !== undefined || department_id !== undefined) {
+      await client.query(
+        `UPDATE student_profiles
+         SET student_name = $2, level = $3, department_id = $4
+         WHERE student_id = $1`,
+        [
+          id,
+          student_name !== undefined ? student_name : before.student_name,
+          level !== undefined ? level : before.level,
+          department_id !== undefined ? department_id : before.department_id,
+        ]
+      );
+    }
+    if (is_active !== undefined) {
+      await client.query(
+        'UPDATE users SET is_active = $2, updated_at = NOW() WHERE user_id = $1',
+        [before.user_id, is_active]
+      );
+    }
+
+    const after = await client.query(
+      `SELECT sp.student_id, sp.student_code, sp.student_name, sp.level,
+              sp.department_id, u.is_active
+       FROM student_profiles sp JOIN users u ON u.user_id = sp.user_id
+       WHERE sp.student_id = $1`,
+      [id]
+    );
+    await client.query('COMMIT');
+    res.json(after.rows[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    handleError(err, res);
+  } finally {
+    client.release();
+  }
+});
+
 // قايمة الدكاترة والمعيدين
 router.get('/staff', async (req, res) => {
   try {
@@ -117,6 +190,72 @@ router.post('/staff', async (req, res) => {
     res.status(201).json(staff);
   } catch (err) {
     handleError(err, res);
+  }
+});
+
+// تعديل بيانات دكتور/معيد (الاسم أو القسم أو تفعيل/تعطيل الحساب)
+router.patch('/staff/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) {
+    return res.status(400).json({ error: 'Invalid staff id' });
+  }
+  const { staff_name, department_id, is_active } = req.body;
+  if (staff_name === undefined && department_id === undefined && is_active === undefined) {
+    return res.status(400).json({
+      error: 'Send at least one of: staff_name, department_id, is_active',
+    });
+  }
+  if (is_active !== undefined && typeof is_active !== 'boolean') {
+    return res.status(400).json({ error: 'is_active must be true or false' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const cur = await client.query(
+      `SELECT sp.*, u.user_id, u.is_active AS user_is_active
+       FROM staff_profiles sp JOIN users u ON u.user_id = sp.user_id
+       WHERE sp.staff_id = $1 FOR UPDATE`,
+      [id]
+    );
+    if (cur.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Staff not found' });
+    }
+    const before = cur.rows[0];
+
+    if (staff_name !== undefined || department_id !== undefined) {
+      await client.query(
+        `UPDATE staff_profiles
+         SET staff_name = $2, department_id = $3
+         WHERE staff_id = $1`,
+        [
+          id,
+          staff_name !== undefined ? staff_name : before.staff_name,
+          department_id !== undefined ? department_id : before.department_id,
+        ]
+      );
+    }
+    if (is_active !== undefined) {
+      await client.query(
+        'UPDATE users SET is_active = $2, updated_at = NOW() WHERE user_id = $1',
+        [before.user_id, is_active]
+      );
+    }
+
+    const after = await client.query(
+      `SELECT sp.staff_id, sp.staff_name, sp.staff_type, sp.department_id, u.is_active
+       FROM staff_profiles sp JOIN users u ON u.user_id = sp.user_id
+       WHERE sp.staff_id = $1`,
+      [id]
+    );
+    await client.query('COMMIT');
+    res.json(after.rows[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    handleError(err, res);
+  } finally {
+    client.release();
   }
 });
 
