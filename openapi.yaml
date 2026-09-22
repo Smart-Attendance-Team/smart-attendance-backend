@@ -1582,6 +1582,9 @@ paths:
                       type: string
                     room_name:
                       type: string
+                    room_type:
+                      type: string
+                      enum: [lecture, lab]
                     building:
                       type: string
                       nullable: true

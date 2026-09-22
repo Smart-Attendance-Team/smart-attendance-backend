@@ -35,7 +35,7 @@ router.get('/my-timetable', async (req, res) => {
     const result = await pool.query(
       `SELECT ts.slot_id, c.course_code, c.course_name,
               sec.section_id, sec.section_name,
-              r.room_name, r.building, ts.day_of_week,
+              r.room_name, r.room_type, r.building, ts.day_of_week,
               to_char(ts.start_time, 'HH24:MI') AS start_time,
               to_char(ts.end_time, 'HH24:MI') AS end_time
        FROM timetable_slots ts
