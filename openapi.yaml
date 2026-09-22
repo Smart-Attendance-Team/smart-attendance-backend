@@ -1017,6 +1017,50 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /students/my-timetable:
+    get:
+      tags: [Students]
+      summary: The logged-in student's weekly timetable (student)
+      description: |
+        Returns one row per timetable slot of every section the student is actively enrolled in,
+        ordered by weekday then start time.
+      responses:
+        '200':
+          description: Timetable slots
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    slot_id:
+                      type: integer
+                    course_code:
+                      type: string
+                    course_name:
+                      type: string
+                    section_id:
+                      type: integer
+                    section_name:
+                      type: string
+                    room_name:
+                      type: string
+                    building:
+                      type: string
+                      nullable: true
+                    day_of_week:
+                      $ref: '#/components/schemas/DayOfWeek'
+                    start_time:
+                      type: string
+                      example: '10:00'
+                    end_time:
+                      type: string
+                      example: '12:00'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /staff/me:
     get:
       tags: [Staff]

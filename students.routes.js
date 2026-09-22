@@ -29,4 +29,32 @@ router.get('/me', async (req, res) => {
   }
 });
 
+// جدول محاضرات الطالب الأسبوعي (من الشُعَب المسجّل فيها)
+router.get('/my-timetable', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT ts.slot_id, c.course_code, c.course_name,
+              sec.section_id, sec.section_name,
+              r.room_name, r.building, ts.day_of_week,
+              to_char(ts.start_time, 'HH24:MI') AS start_time,
+              to_char(ts.end_time, 'HH24:MI') AS end_time
+       FROM timetable_slots ts
+       JOIN sections sec ON sec.section_id = ts.section_id
+       JOIN courses c ON c.course_id = sec.course_id
+       JOIN rooms r ON r.room_id = ts.room_id
+       JOIN enrollments e ON e.section_id = sec.section_id AND e.status = 'active'
+       JOIN student_profiles sp ON sp.student_id = e.student_id
+       WHERE sp.user_id = $1
+       ORDER BY
+         array_position(ARRAY['Saturday','Sunday','Monday','Tuesday','Wednesday','Thursday','Friday'], ts.day_of_week),
+         ts.start_time`,
+      [req.user.userId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 module.exports = router;
