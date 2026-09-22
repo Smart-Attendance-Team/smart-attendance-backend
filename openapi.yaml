@@ -349,6 +349,22 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
   /admin/students:
+    get:
+      tags: [Admin]
+      summary: List students (admin)
+      responses:
+        '200':
+          description: Students
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminStudentListItem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
     post:
       tags: [Admin]
       summary: Create a student account and profile (admin)
@@ -389,6 +405,22 @@ paths:
         '409':
           $ref: '#/components/responses/Conflict'
   /admin/staff:
+    get:
+      tags: [Admin]
+      summary: List lecturers and TAs (admin)
+      responses:
+        '200':
+          description: Staff
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminStaffListItem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
     post:
       tags: [Admin]
       summary: Create a lecturer or TA account and profile (admin)
@@ -1553,6 +1585,31 @@ components:
         department_id:
           type: integer
           nullable: true
+    AdminStudentListItem:
+      type: object
+      properties:
+        student_id:
+          type: integer
+        student_code:
+          type: string
+        student_name:
+          type: string
+        level:
+          type: integer
+          nullable: true
+        department_id:
+          type: integer
+          nullable: true
+        department_name:
+          type: string
+          nullable: true
+        user_id:
+          type: integer
+        email:
+          type: string
+          format: email
+        is_active:
+          type: boolean
     StudentMe:
       type: object
       properties:
@@ -1586,6 +1643,29 @@ components:
         department_id:
           type: integer
           nullable: true
+    AdminStaffListItem:
+      type: object
+      properties:
+        staff_id:
+          type: integer
+        staff_name:
+          type: string
+        staff_type:
+          type: string
+          enum: [lecturer, TA]
+        department_id:
+          type: integer
+          nullable: true
+        department_name:
+          type: string
+          nullable: true
+        user_id:
+          type: integer
+        email:
+          type: string
+          format: email
+        is_active:
+          type: boolean
     StaffMe:
       type: object
       properties:

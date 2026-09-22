@@ -43,6 +43,23 @@ function handleError(err, res) {
   res.status(500).json({ error: 'Server error' });
 }
 
+// قايمة الطلبة
+router.get('/students', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT sp.student_id, sp.student_code, sp.student_name, sp.level,
+              sp.department_id, d.department_name, u.user_id, u.email, u.is_active
+       FROM student_profiles sp
+       JOIN users u ON u.user_id = sp.user_id
+       LEFT JOIN departments d ON d.department_id = sp.department_id
+       ORDER BY sp.student_code`
+    );
+    res.json(result.rows);
+  } catch (err) {
+    handleError(err, res);
+  }
+});
+
 // إضافة طالب
 router.post('/students', async (req, res) => {
   const { email, password, student_code, student_name, level, department_id } = req.body;
@@ -59,6 +76,23 @@ router.post('/students', async (req, res) => {
       return r.rows[0];
     });
     res.status(201).json(student);
+  } catch (err) {
+    handleError(err, res);
+  }
+});
+
+// قايمة الدكاترة والمعيدين
+router.get('/staff', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT sp.staff_id, sp.staff_name, sp.staff_type, sp.department_id,
+              d.department_name, u.user_id, u.email, u.is_active
+       FROM staff_profiles sp
+       JOIN users u ON u.user_id = sp.user_id
+       LEFT JOIN departments d ON d.department_id = sp.department_id
+       ORDER BY sp.staff_name`
+    );
+    res.json(result.rows);
   } catch (err) {
     handleError(err, res);
   }
