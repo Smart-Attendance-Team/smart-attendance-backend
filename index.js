@@ -14,6 +14,7 @@ const reportRoutes = require('./reports.routes');
 const auditRoutes = require('./audit.routes');
 const flagsRoutes = require('./flags.routes');
 const studentsRoutes = require('./students.routes');
+const staffRoutes = require('./staff.routes');
 const { requireAuth, requireRole } = require('./auth.middleware');
 
 const app = express();
@@ -56,6 +57,7 @@ app.use('/sessions', sessionRoutes);
 app.use('/sessions', rosterRoutes);
 app.use('/attendance', attendanceRoutes);
 app.use('/students', studentsRoutes);
+app.use('/staff', staffRoutes);
 app.use('/corrections', correctionRoutes);
 app.use('/reports', reportRoutes);
 app.use('/audit-events', auditRoutes);

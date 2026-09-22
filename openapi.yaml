@@ -31,6 +31,7 @@ tags:
   - name: Sessions
   - name: Attendance
   - name: Students
+  - name: Staff
   - name: Corrections
   - name: Reports
   - name: Audit
@@ -1016,6 +1017,26 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /staff/me:
+    get:
+      tags: [Staff]
+      summary: The logged-in lecturer/TA's own profile (lecturer/TA)
+      description: |
+        Call it right after `POST /auth/login` when the role is `lecturer` or `ta`. The data is taken
+        from the token, so no id is sent.
+      responses:
+        '200':
+          description: Own profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffMe'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /corrections:
     post:
       tags: [Corrections]
@@ -1520,6 +1541,22 @@ components:
           enum: [lecturer, TA]
         department_id:
           type: integer
+          nullable: true
+    StaffMe:
+      type: object
+      properties:
+        staff_id:
+          type: integer
+        staff_name:
+          type: string
+        staff_type:
+          type: string
+          enum: [lecturer, TA]
+        email:
+          type: string
+          format: email
+        department_name:
+          type: string
           nullable: true
     Enrollment:
       type: object
