@@ -137,6 +137,26 @@ router.post('/sections/:sectionId/staff', async (req, res) => {
   }
 });
 
+// قايمة تسجيلات الطلبة في الشُعَب
+router.get('/enrollments', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT e.enrollment_id, e.status, e.enrolled_at,
+              sp.student_id, sp.student_code, sp.student_name,
+              sec.section_id, sec.section_name,
+              c.course_code, c.course_name
+       FROM enrollments e
+       JOIN student_profiles sp ON sp.student_id = e.student_id
+       JOIN sections sec ON sec.section_id = e.section_id
+       JOIN courses c ON c.course_id = sec.course_id
+       ORDER BY e.enrollment_id DESC`
+    );
+    res.json(result.rows);
+  } catch (err) {
+    handleError(err, res);
+  }
+});
+
 // تسجيل طالب في شعبة
 router.post('/enrollments', async (req, res) => {
   const { student_id, section_id } = req.body;

@@ -505,6 +505,22 @@ paths:
         '409':
           $ref: '#/components/responses/Conflict'
   /admin/enrollments:
+    get:
+      tags: [Admin]
+      summary: List enrollments (admin)
+      responses:
+        '200':
+          description: Enrollments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminEnrollmentListItem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
     post:
       tags: [Admin]
       summary: Enroll a student in a section (admin)
@@ -1682,6 +1698,31 @@ components:
         department_name:
           type: string
           nullable: true
+    AdminEnrollmentListItem:
+      type: object
+      properties:
+        enrollment_id:
+          type: integer
+        status:
+          type: string
+          example: active
+        enrolled_at:
+          type: string
+          format: date-time
+        student_id:
+          type: integer
+        student_code:
+          type: string
+        student_name:
+          type: string
+        section_id:
+          type: integer
+        section_name:
+          type: string
+        course_code:
+          type: string
+        course_name:
+          type: string
     Enrollment:
       type: object
       properties:
