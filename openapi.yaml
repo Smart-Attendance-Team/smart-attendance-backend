@@ -248,6 +248,92 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '409':
           $ref: '#/components/responses/Conflict'
+  /admin/courses/{id}:
+    patch:
+      tags: [Admin]
+      summary: Update a course - code, name, or department (admin)
+      description: Send at least one of `course_code`, `course_name`, `department_id`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Course id
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                course_code:
+                  type: string
+                  example: CS101
+                course_name:
+                  type: string
+                department_id:
+                  type: integer
+                  nullable: true
+            example:
+              course_name: Intro to Programming - Updated
+      responses:
+        '200':
+          description: Updated course
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Course'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: The new `course_code` is already used by another course
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags: [Admin]
+      summary: Delete a course (admin)
+      description: Rejected with 409 if sections exist for this course; edit or remove them first.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Course id
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+                    example: true
+                  course_id:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Sections exist for this course; edit it instead
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /admin/rooms:
     get:
       tags: [Admin]
@@ -1171,7 +1257,7 @@ paths:
       summary: The logged-in student's own profile (student)
       description: |
         Call it right after `POST /auth/login` when the role is `student`. The data is taken from the
-        token, so no id is sent and a student can never read another student's profile.
+        token, so no id is sent, and a student can never read another student's profile.
       responses:
         '200':
           description: Own profile
