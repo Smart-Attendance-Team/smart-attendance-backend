@@ -1,0 +1,2328 @@
+openapi: 3.0.3
+info:
+  title: Smart Attendance & Classroom Verification API (ATT)
+  version: 1.1.0
+  description: |
+    Backend API for the Smart Attendance project (requirement prefix ATT).
+
+    **Authentication:** call `POST /auth/login`, then send the returned token in every request as
+    `Authorization: Bearer <token>`. Tokens are valid for 8 hours.
+
+    **Roles:** `student`, `lecturer`, `ta`, `admin`, `auditor`. Authorization is enforced on the backend.
+
+    **QR tokens:** the lecturer/TA app calls `GET /sessions/{id}/qr` repeatedly (about every 15 seconds).
+    Each token expires after 20 seconds. The student app sends the scanned token to `POST /attendance/scan`.
+
+    **Dates and times:** dates are `YYYY-MM-DD`, timestamps are ISO 8601 (UTC), times are `HH:MM:SS`.
+
+    **Rate limiting:** `POST /attendance/scan` allows 10 attempts per minute per student account
+    (HTTP 429 with `reason: too_many_attempts` afterwards).
+
+    **Flags:** `GET /flags` returns rule-based, advisory-only attendance flags. They never change
+    attendance and can be unavailable (HTTP 503) without affecting attendance capture.
+
+    All data used in this project is synthetic.
+servers:
+  - url: http://localhost:3000
+    description: Local development
+tags:
+  - name: Auth
+  - name: Admin
+  - name: Sessions
+  - name: Attendance
+  - name: Students
+  - name: Staff
+  - name: Corrections
+  - name: Reports
+  - name: Audit
+  - name: Flags
+  - name: System
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      tags: [System]
+      summary: Health check
+      security: []
+      responses:
+        '200':
+          description: Server is running
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+  /db-check:
+    get:
+      tags: [System]
+      summary: Database connectivity check
+      security: []
+      responses:
+        '200':
+          description: Database reachable
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  db:
+                    type: string
+                    example: connected
+                  time:
+                    type: string
+                    format: date-time
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Log in with email and password
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                  role:
+                    $ref: '#/components/schemas/Role'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          description: Invalid email or password
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /me:
+    get:
+      tags: [Auth]
+      summary: Current user (from the token)
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  userId:
+                    type: integer
+                  role:
+                    $ref: '#/components/schemas/Role'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /admin/ping:
+    get:
+      tags: [Admin]
+      summary: Admin-only test endpoint
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /admin/departments:
+    get:
+      tags: [Admin]
+      summary: List departments (admin)
+      responses:
+        '200':
+          description: Departments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Department'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Admin]
+      summary: Create a department (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [department_name]
+              properties:
+                department_name:
+                  type: string
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Department'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /admin/courses:
+  
+    get:
+      tags: [Admin]
+      summary: List courses (admin)
+      responses:
+        '200':
+          description: Courses
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Course'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Admin]
+      summary: Create a course (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [course_code, course_name]
+              properties:
+                course_code:
+                  type: string
+                  example: CS101
+                course_name:
+                  type: string
+                department_id:
+                  type: integer
+                  nullable: true
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Course'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /admin/courses/{id}:
+    patch:
+      tags: [Admin]
+      summary: Update a course - code, name, or department (admin)
+      description: Send at least one of `course_code`, `course_name`, `department_id`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Course id
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                course_code:
+                  type: string
+                  example: CS101
+                course_name:
+                  type: string
+                department_id:
+                  type: integer
+                  nullable: true
+            example:
+              course_name: Intro to Programming - Updated
+      responses:
+        '200':
+          description: Updated course
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Course'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: The new `course_code` is already used by another course
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags: [Admin]
+      summary: Delete a course (admin)
+      description: Rejected with 409 if sections exist for this course; edit or remove them first.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Course id
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+                    example: true
+                  course_id:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Sections exist for this course; edit it instead
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /admin/rooms:
+    get:
+      tags: [Admin]
+      summary: List rooms and labs (admin)
+      responses:
+        '200':
+          description: Rooms
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Room'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Admin]
+      summary: Create a room or lab (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [room_name, room_type]
+              properties:
+                room_name:
+                  type: string
+                building:
+                  type: string
+                room_type:
+                  type: string
+                  enum: [lecture, lab]
+                capacity:
+                  type: integer
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Room'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /admin/sections:
+    get:
+      tags: [Admin]
+      summary: List sections (admin)
+      responses:
+        '200':
+          description: Sections
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Section'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Admin]
+      summary: Create a section of a course (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [course_id, section_name, semester]
+              properties:
+                course_id:
+                  type: integer
+                section_name:
+                  type: string
+                  example: Section 1
+                semester:
+                  type: string
+                  example: Fall 2026
+                capacity:
+                  type: integer
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Section'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /admin/students:
+    get:
+      tags: [Admin]
+      summary: List students (admin)
+      responses:
+        '200':
+          description: Students
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminStudentListItem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Admin]
+      summary: Create a student account and profile (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, student_code, student_name]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                student_code:
+                  type: string
+                student_name:
+                  type: string
+                level:
+                  type: integer
+                department_id:
+                  type: integer
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StudentProfile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /admin/students/{id}:
+    patch:
+      tags: [Admin]
+      summary: Update a student - name, level, department, or activate/deactivate (admin)
+      description: |
+        Send at least one of the listed fields. Deactivating (`is_active: false`) blocks the
+        student's account from logging in without deleting any attendance history.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Student id
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                student_name:
+                  type: string
+                level:
+                  type: integer
+                department_id:
+                  type: integer
+                is_active:
+                  type: boolean
+            example:
+              is_active: false
+      responses:
+        '200':
+          description: Updated student
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  student_id:
+                    type: integer
+                  student_code:
+                    type: string
+                  student_name:
+                    type: string
+                  level:
+                    type: integer
+                    nullable: true
+                  department_id:
+                    type: integer
+                    nullable: true
+                  is_active:
+                    type: boolean
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /admin/staff:
+    get:
+      tags: [Admin]
+      summary: List lecturers and TAs (admin)
+      responses:
+        '200':
+          description: Staff
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminStaffListItem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Admin]
+      summary: Create a lecturer or TA account and profile (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, staff_name, staff_type]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                staff_name:
+                  type: string
+                staff_type:
+                  type: string
+                  enum: [lecturer, TA]
+                department_id:
+                  type: integer
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffProfile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /admin/staff/{id}:
+    patch:
+      tags: [Admin]
+      summary: Update a lecturer/TA - name, department, or activate/deactivate (admin)
+      description: |
+        Send at least one of the listed fields. `staff_type` cannot be changed here. Deactivating
+        (`is_active: false`) blocks the account from logging in without deleting any session or
+        attendance history tied to it.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Staff id
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                staff_name:
+                  type: string
+                department_id:
+                  type: integer
+                is_active:
+                  type: boolean
+            example:
+              is_active: false
+      responses:
+        '200':
+          description: Updated staff
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  staff_id:
+                    type: integer
+                  staff_name:
+                    type: string
+                  staff_type:
+                    type: string
+                    enum: [lecturer, TA]
+                  department_id:
+                    type: integer
+                    nullable: true
+                  is_active:
+                    type: boolean
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /admin/sections/{sectionId}/staff:
+    post:
+      tags: [Admin]
+      summary: Assign a lecturer/TA to a section (admin)
+      parameters:
+        - name: sectionId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [staff_id, staff_role]
+              properties:
+                staff_id:
+                  type: integer
+                staff_role:
+                  type: string
+                  example: lecturer
+      responses:
+        '201':
+          description: Assigned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  section_id:
+                    type: integer
+                  staff_id:
+                    type: integer
+                  staff_role:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /admin/enrollments:
+    get:
+      tags: [Admin]
+      summary: List enrollments (admin)
+      responses:
+        '200':
+          description: Enrollments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminEnrollmentListItem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Admin]
+      summary: Enroll a student in a section (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [student_id, section_id]
+              properties:
+                student_id:
+                  type: integer
+                section_id:
+                  type: integer
+      responses:
+        '201':
+          description: Enrolled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Enrollment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /admin/timetable-slots:
+    get:
+      tags: [Admin]
+      summary: List weekly timetable slots (admin)
+      responses:
+        '200':
+          description: Timetable slots
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TimetableSlot'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Admin]
+      summary: Schedule a section in a room on a weekday (admin)
+      description: Rejected with 409 if the room is already booked at an overlapping time on the same weekday.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [section_id, room_id, day_of_week, start_time, end_time]
+              properties:
+                section_id:
+                  type: integer
+                room_id:
+                  type: integer
+                day_of_week:
+                  $ref: '#/components/schemas/DayOfWeek'
+                start_time:
+                  type: string
+                  example: '08:00'
+                end_time:
+                  type: string
+                  example: '10:00'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimetableSlot'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /admin/timetable-slots/{id}:
+    patch:
+      tags: [Admin]
+      summary: Update a timetable slot - room, weekday or time (admin)
+      description: |
+        Send only the fields you want to change (at least one). Times use `HH:MM`.
+        Rejected with 409 if the slot has an open session right now, or if the room is already
+        booked at an overlapping time on that weekday. Every change is written to the audit log
+        with before/after values.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Timetable slot id
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                room_id:
+                  type: integer
+                day_of_week:
+                  $ref: '#/components/schemas/DayOfWeek'
+                start_time:
+                  type: string
+                  example: '09:00'
+                end_time:
+                  type: string
+                  example: '11:00'
+            example:
+              room_id: 2
+      responses:
+        '200':
+          description: Updated slot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimetableSlot'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    delete:
+      tags: [Admin]
+      summary: Delete a timetable slot (admin)
+      description: |
+        Only allowed while no attendance session was ever opened for the slot (so attendance history
+        is never lost). Otherwise answers 409 and the slot should be edited instead.
+        The deletion is written to the audit log.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Timetable slot id
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+                    example: true
+                  slot_id:
+                    type: integer
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /admin/imports/students:
+    post:
+      tags: [Admin]
+      summary: Import students from a CSV file (admin)
+      description: |
+        Send the CSV text as the request body with `Content-Type: text/csv`.
+        Required columns: `student_code`, `student_name`, `email`. Optional column: `level` (1-8).
+        Valid rows are created (and enrolled when `section_id` is given). Invalid rows are skipped
+        and listed in `rejected_rows` with the reason; they never block the valid rows.
+        Maximum 1000 rows.
+      parameters:
+        - name: default_password
+          in: query
+          required: true
+          description: Temporary password for all imported accounts (at least 8 characters).
+          schema:
+            type: string
+        - name: section_id
+          in: query
+          required: false
+          description: Enroll every imported student in this section.
+          schema:
+            type: integer
+        - name: department_id
+          in: query
+          required: false
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          text/csv:
+            schema:
+              type: string
+              example: |
+                student_code,student_name,email,level
+                S2001,Import Student 1,import.student1@test.com,2
+      responses:
+        '200':
+          description: Import finished
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /sessions/my-slots:
+    get:
+      tags: [Sessions]
+      summary: List my scheduled slots (lecturer/TA)
+      description: |
+        Returns the timetable slots of every section the caller is assigned to.
+        `is_today` is true when the slot's weekday is today (Cairo time).
+        `session_id` and `session_status` are filled only if a session was already opened today.
+      responses:
+        '200':
+          description: List of slots
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    slot_id:
+                      type: integer
+                    course_code:
+                      type: string
+                    course_name:
+                      type: string
+                    section_id:
+                      type: integer
+                    section_name:
+                      type: string
+                    room_name:
+                      type: string
+                    building:
+                      type: string
+                      nullable: true
+                    day_of_week:
+                      $ref: '#/components/schemas/DayOfWeek'
+                    start_time:
+                      type: string
+                      example: '10:00'
+                    end_time:
+                      type: string
+                      example: '12:00'
+                    session_id:
+                      type: integer
+                      nullable: true
+                    session_status:
+                      type: string
+                      nullable: true
+                      enum: [open, closed]
+                    is_today:
+                      type: boolean
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /sessions/open:
+    post:
+      tags: [Sessions]
+      summary: Open an attendance session (lecturer/TA)
+      description: |
+        Only staff assigned to the section can open its scheduled slot, only on the slot's weekday,
+        and only inside the slot's time range. Opening freezes the roster: every active enrolled
+        student gets an `absent` attendance record.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [slot_id]
+              properties:
+                slot_id:
+                  type: integer
+      responses:
+        '201':
+          description: Session opened
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpenedSession'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /sessions/{id}/close:
+    post:
+      tags: [Sessions]
+      summary: Close an open session (lecturer/TA who opened it)
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Session closed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  session_id:
+                    type: integer
+                  status:
+                    type: string
+                    example: closed
+                  closed_at:
+                    type: string
+                    format: date-time
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /sessions/{id}/qr:
+    get:
+      tags: [Sessions]
+      summary: Get the current rotating QR token (lecturer/TA who opened the session)
+      description: Every call returns a new signed token that expires after 20 seconds. Render it as a QR code.
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: QR token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                  expires_in_seconds:
+                    type: integer
+                    example: 20
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /sessions/{id}/roster:
+    get:
+      tags: [Sessions]
+      summary: Live roster of a session (lecturer/TA of the section)
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Roster with counts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Roster'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /sessions/{id}/attendance/{attendanceId}:
+    patch:
+      tags: [Sessions]
+      summary: Manually correct a student's status (lecturer/TA of the section)
+      description: The reason is mandatory. Every change writes before/after values to the audit log.
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - name: attendanceId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status, reason]
+              properties:
+                status:
+                  type: string
+                  enum: [present, absent, excused]
+                reason:
+                  type: string
+                  minLength: 3
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  attendance_id:
+                    type: integer
+                  before:
+                    $ref: '#/components/schemas/StatusSnapshot'
+                  after:
+                    $ref: '#/components/schemas/StatusSnapshot'
+                  reason:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /attendance/scan:
+    post:
+      tags: [Attendance]
+      summary: Student scans the session QR (student)
+      description: |
+        The record is bound to the authenticated student. A second scan is idempotent: it returns
+        `duplicate: true` and never creates another record. A student is `late` when scanning more than
+        15 minutes after the session was opened.
+
+        Rejected scans return `accepted: false` with a `reason`:
+        `invalid_token`, `expired_token`, `session_closed` (HTTP 400), `not_enrolled` (HTTP 403),
+        `manually_recorded` (HTTP 409, the lecturer/TA already set this student's status manually,
+        so a scan cannot change it) or `too_many_attempts` (HTTP 429).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+                  description: The token read from the QR code.
+      responses:
+        '200':
+          description: Scan accepted (or duplicate of an earlier accepted scan)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanAccepted'
+        '400':
+          description: Scan rejected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanRejected'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Not a student, or the student is not enrolled in this session
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ScanRejected'
+                  - $ref: '#/components/schemas/Error'
+        '409':
+          description: The record was set manually by staff; the scan does not change it
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanRejected'
+              example:
+                accepted: false
+                reason: manually_recorded
+                attendance_status: excused
+        '429':
+          description: Too many scan attempts (limit 10 per minute per account). Wait a minute and retry.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanRejected'
+              example:
+                accepted: false
+                reason: too_many_attempts
+  /attendance/me:
+    get:
+      tags: [Attendance]
+      summary: The student's own attendance history (student)
+      responses:
+        '200':
+          description: Own records only
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MyAttendanceRecord'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /students/me:
+    get:
+      tags: [Students]
+      summary: The logged-in student's own profile (student)
+      description: |
+        Call it right after `POST /auth/login` when the role is `student`. The data is taken from the
+        token, so no id is sent, and a student can never read another student's profile.
+      responses:
+        '200':
+          description: Own profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StudentMe'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /students/my-timetable:
+    get:
+      tags: [Students]
+      summary: The logged-in student's weekly timetable (student)
+      description: |
+        Returns one row per timetable slot of every section the student is actively enrolled in,
+        ordered by weekday then start time.
+      responses:
+        '200':
+          description: Timetable slots
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    slot_id:
+                      type: integer
+                    course_code:
+                      type: string
+                    course_name:
+                      type: string
+                    section_id:
+                      type: integer
+                    section_name:
+                      type: string
+                    room_name:
+                      type: string
+                    room_type:
+                      type: string
+                      enum: [lecture, lab]
+                    building:
+                      type: string
+                      nullable: true
+                    day_of_week:
+                      $ref: '#/components/schemas/DayOfWeek'
+                    start_time:
+                      type: string
+                      example: '10:00'
+                    end_time:
+                      type: string
+                      example: '12:00'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /staff/me:
+    get:
+      tags: [Staff]
+      summary: The logged-in lecturer/TA's own profile (lecturer/TA)
+      description: |
+        Call it right after `POST /auth/login` when the role is `lecturer` or `ta`. The data is taken
+        from the token, so no id is sent.
+      responses:
+        '200':
+          description: Own profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffMe'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /corrections:
+    post:
+      tags: [Corrections]
+      summary: Student submits a correction request (student)
+      description: Only one pending request per attendance record is allowed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [attendance_id, requested_status, reason]
+              properties:
+                attendance_id:
+                  type: integer
+                requested_status:
+                  type: string
+                  enum: [present, excused]
+                reason:
+                  type: string
+                  minLength: 3
+                evidence_url:
+                  type: string
+                  nullable: true
+      responses:
+        '201':
+          description: Request created with status pending
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CorrectionCreated'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /corrections/mine:
+    get:
+      tags: [Corrections]
+      summary: The student's own correction requests (student)
+      responses:
+        '200':
+          description: Own requests only
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MyCorrection'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /corrections/pending:
+    get:
+      tags: [Corrections]
+      summary: Pending requests for the staff member's sections (lecturer/TA)
+      responses:
+        '200':
+          description: Pending requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PendingCorrection'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /corrections/{id}:
+    patch:
+      tags: [Corrections]
+      summary: Approve or reject a pending request (lecturer/TA of the section)
+      description: |
+        `review_reason` is mandatory. Approving updates the attendance record and writes before/after
+        values to the audit log.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Correction request id
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision, review_reason]
+              properties:
+                decision:
+                  type: string
+                  enum: [approved, rejected]
+                review_reason:
+                  type: string
+                  minLength: 3
+      responses:
+        '200':
+          description: Decision saved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  request_id:
+                    type: integer
+                  status:
+                    type: string
+                    enum: [approved, rejected]
+                  review_reason:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /reports/attendance:
+    get:
+      tags: [Reports]
+      summary: Attendance report with filters (admin, auditor, lecturer, TA)
+      description: Lecturers and TAs only see their own sections. The summary is computed from the returned rows.
+      parameters:
+        - $ref: '#/components/parameters/CourseCode'
+        - $ref: '#/components/parameters/SectionIdQuery'
+        - $ref: '#/components/parameters/StaffIdQuery'
+        - $ref: '#/components/parameters/StudentCode'
+        - $ref: '#/components/parameters/FromDate'
+        - $ref: '#/components/parameters/ToDate'
+      responses:
+        '200':
+          description: Report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Report'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /reports/attendance/export:
+    get:
+      tags: [Reports]
+      summary: Export the report as CSV with the same filters (admin, auditor, lecturer, TA)
+      description: The export is recorded in the audit log. Only `format=csv` is available for now.
+      parameters:
+        - name: format
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [csv]
+            default: csv
+        - $ref: '#/components/parameters/CourseCode'
+        - $ref: '#/components/parameters/SectionIdQuery'
+        - $ref: '#/components/parameters/StaffIdQuery'
+        - $ref: '#/components/parameters/StudentCode'
+        - $ref: '#/components/parameters/FromDate'
+        - $ref: '#/components/parameters/ToDate'
+      responses:
+        '200':
+          description: CSV file (attachment `attendance-report.csv`)
+          content:
+            text/csv:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /audit-events:
+    get:
+      tags: [Audit]
+      summary: Read the immutable change history (auditor, admin; read-only)
+      parameters:
+        - name: entity_type
+          in: query
+          schema:
+            type: string
+          example: attendance
+        - name: action
+          in: query
+          schema:
+            type: string
+          example: attendance.manual_update
+        - name: entity_id
+          in: query
+          schema:
+            type: integer
+        - name: actor_user_id
+          in: query
+          schema:
+            type: integer
+        - $ref: '#/components/parameters/FromDate'
+        - $ref: '#/components/parameters/ToDate'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Audit events, newest first
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /flags:
+    get:
+      tags: [Flags]
+      summary: Rule-based attendance flags (admin, auditor, lecturer, TA)
+      description: |
+        Advisory only: flags never change attendance. Lecturers and TAs only see their own sections.
+
+        Rules:
+        1. `low_attendance`: attended sessions (present + late) divided by counted sessions is below
+           `threshold` percent. Only closed sessions are used and excused sessions are not counted.
+        2. `many_correction_requests`: the student submitted at least `corrections` correction requests
+           in the last 30 days.
+
+        If the flags cannot be computed the endpoint answers 503 with `available: false`.
+        Attendance capture is not affected.
+      parameters:
+        - name: threshold
+          in: query
+          description: Low-attendance threshold in percent (1-100)
+          schema:
+            type: number
+            minimum: 1
+            maximum: 100
+            default: 75
+        - name: min_sessions
+          in: query
+          description: Minimum number of counted sessions before a student can be flagged
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: corrections
+          in: query
+          description: Number of correction requests in 30 days that triggers a flag
+          schema:
+            type: integer
+            minimum: 1
+            default: 3
+      responses:
+        '200':
+          description: Flags with a plain-language explanation for each one
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FlagsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          description: Flags are temporarily unavailable (attendance capture is not affected)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  available:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    SessionId:
+      name: id
+      in: path
+      required: true
+      description: Attendance session id
+      schema:
+        type: integer
+    CourseCode:
+      name: course_code
+      in: query
+      schema:
+        type: string
+      example: CS101
+    SectionIdQuery:
+      name: section_id
+      in: query
+      schema:
+        type: integer
+    StaffIdQuery:
+      name: staff_id
+      in: query
+      description: Lecturer/TA teaching the section
+      schema:
+        type: integer
+    StudentCode:
+      name: student_code
+      in: query
+      schema:
+        type: string
+      example: S1001
+    FromDate:
+      name: from
+      in: query
+      description: Start date, inclusive (YYYY-MM-DD)
+      schema:
+        type: string
+        format: date
+    ToDate:
+      name: to
+      in: query
+      description: End date, inclusive (YYYY-MM-DD)
+      schema:
+        type: string
+        format: date
+  responses:
+    BadRequest:
+      description: Missing or invalid input
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: Missing, invalid or expired token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: The role is not allowed, or the record belongs to someone else
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Record not found (or not yours)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Conflict:
+      description: Duplicate record, or the action conflicts with the current state (e.g. room already booked, open session)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ServerError:
+      description: Unexpected server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+    Role:
+      type: string
+      enum: [student, lecturer, ta, admin, auditor]
+    DayOfWeek:
+      type: string
+      enum: [Saturday, Sunday, Monday, Tuesday, Wednesday, Thursday, Friday]
+    AttendanceStatus:
+      type: string
+      enum: [present, absent, late, excused]
+    Department:
+      type: object
+      properties:
+        department_id:
+          type: integer
+        department_name:
+          type: string
+    Course:
+      type: object
+      properties:
+        course_id:
+          type: integer
+        course_code:
+          type: string
+        course_name:
+          type: string
+        department_id:
+          type: integer
+          nullable: true
+    Room:
+      type: object
+      properties:
+        room_id:
+          type: integer
+        room_name:
+          type: string
+        building:
+          type: string
+          nullable: true
+        room_type:
+          type: string
+          enum: [lecture, lab]
+        capacity:
+          type: integer
+          nullable: true
+        latitude:
+          type: number
+          nullable: true
+        longitude:
+          type: number
+          nullable: true
+    Section:
+      type: object
+      properties:
+        section_id:
+          type: integer
+        course_id:
+          type: integer
+        section_name:
+          type: string
+        semester:
+          type: string
+        capacity:
+          type: integer
+          nullable: true
+    StudentProfile:
+      type: object
+      properties:
+        student_id:
+          type: integer
+        user_id:
+          type: integer
+        student_code:
+          type: string
+        student_name:
+          type: string
+        level:
+          type: integer
+          nullable: true
+        department_id:
+          type: integer
+          nullable: true
+    AdminStudentListItem:
+      type: object
+      properties:
+        student_id:
+          type: integer
+        student_code:
+          type: string
+        student_name:
+          type: string
+        level:
+          type: integer
+          nullable: true
+        department_id:
+          type: integer
+          nullable: true
+        department_name:
+          type: string
+          nullable: true
+        user_id:
+          type: integer
+        email:
+          type: string
+          format: email
+        is_active:
+          type: boolean
+    StudentMe:
+      type: object
+      properties:
+        student_id:
+          type: integer
+        student_code:
+          type: string
+        student_name:
+          type: string
+        email:
+          type: string
+          format: email
+        level:
+          type: integer
+          nullable: true
+        department_name:
+          type: string
+          nullable: true
+    StaffProfile:
+      type: object
+      properties:
+        staff_id:
+          type: integer
+        user_id:
+          type: integer
+        staff_name:
+          type: string
+        staff_type:
+          type: string
+          enum: [lecturer, TA]
+        department_id:
+          type: integer
+          nullable: true
+    AdminStaffListItem:
+      type: object
+      properties:
+        staff_id:
+          type: integer
+        staff_name:
+          type: string
+        staff_type:
+          type: string
+          enum: [lecturer, TA]
+        department_id:
+          type: integer
+          nullable: true
+        department_name:
+          type: string
+          nullable: true
+        user_id:
+          type: integer
+        email:
+          type: string
+          format: email
+        is_active:
+          type: boolean
+    StaffMe:
+      type: object
+      properties:
+        staff_id:
+          type: integer
+        staff_name:
+          type: string
+        staff_type:
+          type: string
+          enum: [lecturer, TA]
+        email:
+          type: string
+          format: email
+        department_name:
+          type: string
+          nullable: true
+    AdminEnrollmentListItem:
+      type: object
+      properties:
+        enrollment_id:
+          type: integer
+        status:
+          type: string
+          example: active
+        enrolled_at:
+          type: string
+          format: date-time
+        student_id:
+          type: integer
+        student_code:
+          type: string
+        student_name:
+          type: string
+        section_id:
+          type: integer
+        section_name:
+          type: string
+        course_code:
+          type: string
+        course_name:
+          type: string
+    Enrollment:
+      type: object
+      properties:
+        enrollment_id:
+          type: integer
+        student_id:
+          type: integer
+        section_id:
+          type: integer
+        status:
+          type: string
+          example: active
+        enrolled_at:
+          type: string
+          format: date-time
+    TimetableSlot:
+      type: object
+      properties:
+        slot_id:
+          type: integer
+        section_id:
+          type: integer
+        room_id:
+          type: integer
+        day_of_week:
+          $ref: '#/components/schemas/DayOfWeek'
+        start_time:
+          type: string
+          example: '08:00:00'
+        end_time:
+          type: string
+          example: '10:00:00'
+    ImportResult:
+      type: object
+      properties:
+        total:
+          type: integer
+        created:
+          type: integer
+        rejected:
+          type: integer
+        rejected_rows:
+          type: array
+          items:
+            type: object
+            properties:
+              row:
+                type: integer
+                description: Line number in the CSV (line 1 is the header)
+              student_code:
+                type: string
+                nullable: true
+              reason:
+                type: string
+    OpenedSession:
+      type: object
+      properties:
+        session_id:
+          type: integer
+        slot_id:
+          type: integer
+        session_date:
+          type: string
+          format: date
+        status:
+          type: string
+          enum: [open, closed]
+        opened_at:
+          type: string
+          format: date-time
+        roster_count:
+          type: integer
+          description: Number of enrolled students added to the roster
+    StatusSnapshot:
+      type: object
+      properties:
+        attendance_status:
+          $ref: '#/components/schemas/AttendanceStatus'
+        minutes_late:
+          type: integer
+    RosterStudent:
+      type: object
+      properties:
+        attendance_id:
+          type: integer
+        student_code:
+          type: string
+        student_name:
+          type: string
+        attendance_status:
+          $ref: '#/components/schemas/AttendanceStatus'
+        minutes_late:
+          type: integer
+        source:
+          type: string
+          enum: [qr, manual]
+        attendance_timestamp:
+          type: string
+          format: date-time
+          nullable: true
+    Roster:
+      type: object
+      properties:
+        session_id:
+          type: integer
+        session_status:
+          type: string
+          enum: [open, closed]
+        summary:
+          type: object
+          properties:
+            total:
+              type: integer
+            present:
+              type: integer
+            late:
+              type: integer
+            excused:
+              type: integer
+            absent:
+              type: integer
+        students:
+          type: array
+          items:
+            $ref: '#/components/schemas/RosterStudent'
+    ScanAccepted:
+      type: object
+      properties:
+        accepted:
+          type: boolean
+          example: true
+        duplicate:
+          type: boolean
+          description: true when this student was already recorded (no new record is created)
+        attendance_status:
+          $ref: '#/components/schemas/AttendanceStatus'
+        minutes_late:
+          type: integer
+        attendance_timestamp:
+          type: string
+          format: date-time
+          description: Only present when duplicate is false
+    ScanRejected:
+      type: object
+      properties:
+        accepted:
+          type: boolean
+          example: false
+        reason:
+          type: string
+          example: expired_token
+          description: invalid_token, expired_token, session_closed, not_enrolled, manually_recorded, too_many_attempts, or a validation message
+    MyAttendanceRecord:
+      type: object
+      properties:
+        attendance_id:
+          type: integer
+        course_code:
+          type: string
+        course_name:
+          type: string
+        session_date:
+          type: string
+          format: date
+        attendance_status:
+          $ref: '#/components/schemas/AttendanceStatus'
+        minutes_late:
+          type: integer
+        attendance_timestamp:
+          type: string
+          format: date-time
+          nullable: true
+    CorrectionCreated:
+      type: object
+      properties:
+        request_id:
+          type: integer
+        attendance_id:
+          type: integer
+        requested_status:
+          type: string
+        reason:
+          type: string
+        evidence_url:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [pending]
+        created_at:
+          type: string
+          format: date-time
+    MyCorrection:
+      type: object
+      properties:
+        request_id:
+          type: integer
+        attendance_id:
+          type: integer
+        requested_status:
+          type: string
+        reason:
+          type: string
+        evidence_url:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [pending, approved, rejected]
+        review_reason:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        reviewed_at:
+          type: string
+          format: date-time
+          nullable: true
+    PendingCorrection:
+      type: object
+      properties:
+        request_id:
+          type: integer
+        attendance_id:
+          type: integer
+        student_code:
+          type: string
+        student_name:
+          type: string
+        course_code:
+          type: string
+        session_date:
+          type: string
+          format: date
+        current_status:
+          $ref: '#/components/schemas/AttendanceStatus'
+        requested_status:
+          type: string
+        reason:
+          type: string
+        evidence_url:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+    ReportRow:
+      type: object
+      properties:
+        course_code:
+          type: string
+        course_name:
+          type: string
+        section_name:
+          type: string
+        session_date:
+          type: string
+          format: date
+        student_code:
+          type: string
+        student_name:
+          type: string
+        attendance_status:
+          $ref: '#/components/schemas/AttendanceStatus'
+        minutes_late:
+          type: integer
+        source:
+          type: string
+          enum: [qr, manual]
+    Report:
+      type: object
+      properties:
+        filters:
+          type: object
+          additionalProperties: true
+        summary:
+          type: object
+          properties:
+            total:
+              type: integer
+            present:
+              type: integer
+            late:
+              type: integer
+            excused:
+              type: integer
+            absent:
+              type: integer
+            attendance_rate_percent:
+              type: number
+              description: (present + late) / total
+            late_rate_percent:
+              type: number
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReportRow'
+    AuditEvent:
+      type: object
+      properties:
+        audit_id:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        action:
+          type: string
+          example: attendance.manual_update
+        entity_type:
+          type: string
+        entity_id:
+          type: integer
+          nullable: true
+        actor_email:
+          type: string
+        actor_role:
+          $ref: '#/components/schemas/Role'
+        before_hash:
+          type: string
+          nullable: true
+        after_hash:
+          type: string
+          nullable: true
+        details:
+          type: object
+          nullable: true
+          additionalProperties: true
+    AuditList:
+      type: object
+      properties:
+        count:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEvent'
+    Flag:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [low_attendance, many_correction_requests]
+        student_code:
+          type: string
+        student_name:
+          type: string
+        course_code:
+          type: string
+          description: Only for low_attendance
+        section_name:
+          type: string
+          description: Only for low_attendance
+        explanation:
+          type: string
+          example: Attended 0 of 1 counted sessions (0%), below the 75% threshold
+        details:
+          type: object
+          additionalProperties: true
+          description: 'low_attendance: attended, counted, rate_percent. many_correction_requests: requests.'
+    FlagsResponse:
+      type: object
+      properties:
+        available:
+          type: boolean
+          example: true
+        method:
+          type: string
+          example: rule_based
+        advisory_only:
+          type: boolean
+          example: true
+        generated_at:
+          type: string
+          format: date-time
+        thresholds:
+          type: object
+          properties:
+            attendance_percent:
+              type: number
+            min_sessions:
+              type: integer
+            corrections_in_30_days:
+              type: integer
+        count:
+          type: integer
+        flags:
+          type: array
+          items:
+            $ref: '#/components/schemas/Flag'
