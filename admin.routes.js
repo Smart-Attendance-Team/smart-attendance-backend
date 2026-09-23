@@ -8,7 +8,7 @@ const router = express.Router();
 router.use(requireAuth, requireRole('admin'));
 
 // إضافة قسم
-router.post('/departments', async (req, res) => {
+router.post('/departments', async (req, res) => { //لما ييجي Request من نوع POST على /departments نفذ الكود ده.
   const { department_name } = req.body;
   if (!department_name) {
     return res.status(400).json({ error: 'department_name is required' });
@@ -18,7 +18,8 @@ router.post('/departments', async (req, res) => {
       'INSERT INTO departments (department_name) VALUES ($1) RETURNING *',
       [department_name]
     );
-    res.status(201).json(result.rows[0]);
+    res.status(201).json(result.rows[0]); //العملية نجحت وتم إنشاء Resource جديد.
+    
   } catch (err) {
     if (err.code === '23505') {
       return res.status(409).json({ error: 'Department already exists' });
