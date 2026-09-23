@@ -1,0 +1,14 @@
+services:
+  backend:
+    build: .
+    container_name: smart-attendance-backend
+    ports:
+      - "3000:3000"
+    environment:
+      DB_HOST: host.docker.internal
+      DB_PORT: 5433
+      DB_NAME: attendance
+      DB_USER: attendance_user
+      DB_PASSWORD: change_me_for_local_development
+      JWT_SECRET: change_me
+      PORT: 3000
