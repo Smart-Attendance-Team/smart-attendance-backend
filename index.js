@@ -19,9 +19,13 @@ const { requireAuth, requireRole } = require('./auth.middleware');
 
 const app = express();
 
-const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:3001')
+const allowedOrigins = (
+  process.env.CORS_ORIGIN ||
+  'http://localhost:3001,http://localhost:3002'
+)
   .split(',')
   .map((o) => o.trim());
+
 app.use(cors({ origin: allowedOrigins }));
 app.use(express.json());
 
@@ -64,10 +68,12 @@ app.use('/audit-events', auditRoutes);
 app.use('/flags', flagsRoutes);
 
 const PORT = process.env.PORT || 3000;
+
 app.listen(PORT, (err) => {
   if (err) {
     console.error('Could not start the server:', err.message);
     process.exit(1);
   }
+
   console.log(`Server running on http://localhost:${PORT}`);
 });
