@@ -15,6 +15,7 @@ const auditRoutes = require('./audit.routes');
 const flagsRoutes = require('./flags.routes');
 const studentsRoutes = require('./students.routes');
 const staffRoutes = require('./staff.routes');
+const aiRoutes = require('./ai.routes');
 const { requireAuth, requireRole } = require('./auth.middleware');
 
 const app = express();
@@ -66,6 +67,7 @@ app.use('/corrections', correctionRoutes);
 app.use('/reports', reportRoutes);
 app.use('/audit-events', auditRoutes);
 app.use('/flags', flagsRoutes);
+app.use('/ai', aiRoutes);
 
 const PORT = process.env.PORT || 3000;
 
